@@ -435,6 +435,16 @@ BarWidget {
             font.family: root.fontFamily
             font.pixelSize: Style.font.caption
           }
+
+          Text {
+            width: parent.width
+            text: "NET shows live throughput only while a TCP connection is actively transferring — blank means nothing is moving right now, not that it's broken"
+            opacity: 0.6
+            wrapMode: Text.WordWrap
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
         }
 
         Text {
