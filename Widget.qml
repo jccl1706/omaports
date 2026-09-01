@@ -231,8 +231,8 @@ BarWidget {
     spacing: Style.space(10)
 
     Text {
-      text: "PROTO"
-      width: root.protoColWidth
+      text: "PROCESS"
+      width: Math.max(Style.space(20), headerRow.width - root.portColWidth - root.protoColWidth - headerRow.spacing * 2)
       color: Qt.darker(root.foreground, 1.4)
       font.bold: true
       font.family: root.fontFamily
@@ -250,7 +250,8 @@ BarWidget {
       font.letterSpacing: 1
     }
     Text {
-      text: "PROCESS"
+      text: "PROTO"
+      width: root.protoColWidth
       color: Qt.darker(root.foreground, 1.4)
       font.bold: true
       font.family: root.fontFamily
@@ -270,10 +271,10 @@ BarWidget {
     height: Style.space(20)
 
     Text {
-      text: portRow.proto.toUpperCase()
-      width: root.protoColWidth
+      text: portRow.display
+      elide: Text.ElideRight
       anchors.verticalCenter: parent.verticalCenter
-      opacity: 0.6
+      width: Math.max(Style.space(20), portRow.width - root.portColWidth - root.protoColWidth - portRow.spacing * 2)
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
@@ -289,10 +290,10 @@ BarWidget {
       font.pixelSize: Style.font.bodySmall
     }
     Text {
-      text: portRow.display
-      elide: Text.ElideRight
+      text: portRow.proto.toUpperCase()
+      width: root.protoColWidth
       anchors.verticalCenter: parent.verticalCenter
-      width: Math.max(Style.space(20), portRow.width - root.protoColWidth - root.portColWidth - portRow.spacing * 2)
+      opacity: 0.6
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
