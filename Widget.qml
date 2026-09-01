@@ -97,11 +97,11 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     slotSize: Style.bar.iconSlot * 1.7
-    // \uf1e6 is Font Awesome's "plug" glyph, part of the standard Nerd
+    // \uf233 is Font Awesome's "server" glyph, part of the standard Nerd
     // Fonts symbol range (f000-f385) — confirmed present by rendering it
     // with the actual configured bar font before using it here, since an
     // out-of-range codepoint silently renders as a blank/tofu box.
-    text: "\uf1e6 " + root.portCount
+    text: "\uf233 " + root.portCount
     tooltipText: "OmaPorts — " + root.portCount + " open port" + (root.portCount === 1 ? "" : "s") + ", click for details"
     onPressed: root.toggle()
   }
@@ -133,7 +133,7 @@ BarWidget {
           fontFamily: root.fontFamily
           iconComponent: Component {
             Text {
-              text: "\uf1e6"
+              text: "\uf233"
               font.pixelSize: Style.font.display
               color: root.foreground
             }
