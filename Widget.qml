@@ -251,8 +251,6 @@ BarWidget {
     }
     Text {
       text: "PROCESS"
-      width: Math.max(Style.space(20), headerRow.width - root.protoColWidth - root.portColWidth - headerRow.spacing * 2)
-      horizontalAlignment: Text.AlignRight
       color: Qt.darker(root.foreground, 1.4)
       font.bold: true
       font.family: root.fontFamily
@@ -292,8 +290,7 @@ BarWidget {
     }
     Text {
       text: portRow.display
-      elide: Text.ElideLeft
-      horizontalAlignment: Text.AlignRight
+      elide: Text.ElideRight
       anchors.verticalCenter: parent.verticalCenter
       width: Math.max(Style.space(20), portRow.width - root.protoColWidth - root.portColWidth - portRow.spacing * 2)
       color: root.foreground
