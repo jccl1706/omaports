@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.jccl1706.omaport",
+  "name": "OmaPort",
+  "version": "1.0.0",
+  "author": "jc",
+  "license": "MIT",
+  "description": "Shows open ports and which app is using each one, right from the Omarchy bar",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Widget.qml" },
+  "barWidget": {
+    "displayName": "OmaPort",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {},
+    "schema": []
+  }
+}
