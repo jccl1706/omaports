@@ -33,7 +33,7 @@ edited, restart the shell before assuming the code is wrong.
 
 The bar icon shows the number of open ports, refreshed every 30s in the
 background and every 4s while the popup is open. Click it for the full list:
-protocol, port number, and the owning process (with its PID).
+process, port number, and protocol.
 
 Ports owned by other users or root (system services like DNS or CUPS) show
 as "unknown" — this plugin never asks for a password just to list sockets.
@@ -41,6 +41,21 @@ When the port number is a well-known one (53 for DNS, 631 for printing,
 etc.), "unknown" gets a guessed hint like `unknown (DNS?)` — the `?` marks
 it as an inference from the port number by convention, not something read
 from the kernel the way the real process name would be.
+
+A dot next to a row means that port is bound to a real network address
+(`0.0.0.0`, `::`, or a specific LAN address) rather than loopback-only —
+reachable from other devices on your network, not just this machine. A port
+bound to *both* (common for services that also listen on a Docker bridge
+address, for example) still gets the dot, since it's exposed either way.
+
+The bar icon highlights and a desktop notification fires when a port opens
+that wasn't there on the previous scan — useful for noticing the moment a
+dev server or container starts without watching the popup. The highlight
+clears the next time you open the popup.
+
+Toggle "Hide unknown services" in the popup to filter the list down to only
+processes `ss` could actually name — also available over IPC:
+`omarchy-shell io.github.jccl1706.omaports toggleHideUnknown`.
 
 ## Removal
 
