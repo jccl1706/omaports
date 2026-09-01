@@ -18,6 +18,49 @@ BarWidget {
   property var ports: []
   readonly property int portCount: ports.length
 
+  readonly property real protoColWidth: Style.space(40)
+  readonly property real portColWidth: Style.space(50)
+
+  // ss can only name the owning process for sockets the current user owns;
+  // system services (DNS, printing, mDNS, ...) run as their own system user
+  // and show up as "unknown" without root. Rather than prompt for a
+  // password just to list sockets, guess from the well-known port instead —
+  // clearly marked as a guess, since we're inferring by convention, not
+  // reading it from the kernel the way the real process name would be.
+  function wellKnownPortName(port) {
+    switch (port) {
+      case 22: return "SSH"
+      case 25: return "SMTP"
+      case 53: return "DNS"
+      case 67: case 68: return "DHCP"
+      case 80: return "HTTP"
+      case 110: return "POP3"
+      case 123: return "NTP"
+      case 143: return "IMAP"
+      case 443: return "HTTPS"
+      case 445: return "SMB"
+      case 465: return "SMTPS"
+      case 587: return "SMTP"
+      case 631: return "Printing (IPP)"
+      case 993: return "IMAPS"
+      case 995: return "POP3S"
+      case 3306: return "MySQL"
+      case 5353: return "mDNS"
+      case 5432: return "PostgreSQL"
+      case 6379: return "Redis"
+      case 8080: return "HTTP"
+      case 8443: return "HTTPS"
+      case 27017: return "MongoDB"
+      default: return ""
+    }
+  }
+
+  function describeProcess(procName, port) {
+    if (procName !== "unknown") return procName
+    var guess = wellKnownPortName(port)
+    return guess ? "unknown (" + guess + "?)" : "unknown"
+  }
+
   function open() { popup.open = true }
   function close() { popup.open = false }
   function toggle() { popup.open = !popup.open }
@@ -26,10 +69,6 @@ BarWidget {
     if (!scanProc.running) scanProc.running = true
   }
 
-  // ss shows the owning process only for sockets the current user owns;
-  // system services (DNS, CUPS, ...) show as "unknown" without root. That
-  // matches how similar menu-bar port monitors behave rather than prompting
-  // for a password just to list sockets.
   function updatePorts(text) {
     var lines = String(text || "").split("\n").filter(function(l) { return l.length > 0 })
     var list = []
@@ -38,7 +77,15 @@ BarWidget {
       if (parts.length < 3) continue
       var port = parseInt(parts[1], 10)
       if (!isFinite(port)) continue
-      list.push({ proto: parts[0], port: port, process: parts[2] || "unknown", pid: parts[3] || "" })
+      var process = parts[2] || "unknown"
+      var pid = parts[3] || ""
+      list.push({
+        proto: parts[0],
+        port: port,
+        process: process,
+        pid: pid,
+        display: describeProcess(process, port) + (pid ? " (" + pid + ")" : "")
+      })
     }
     root.ports = list
   }
@@ -111,7 +158,7 @@ BarWidget {
     anchorItem: button
     bar: root.bar
     owner: root
-    contentWidth: popup.fittedContentWidth(Style.space(320))
+    contentWidth: popup.fittedContentWidth(Style.space(340))
     contentHeight: popup.fittedContentHeight(Math.min(content.implicitHeight, Style.space(420)))
 
     Flickable {
@@ -124,7 +171,7 @@ BarWidget {
       Column {
         id: content
         width: parent.width
-        spacing: Style.space(14)
+        spacing: Style.space(16)
 
         PanelHero {
           title: "OmaPorts"
@@ -144,24 +191,24 @@ BarWidget {
 
         Column {
           width: parent.width
-          spacing: Style.space(6)
+          spacing: Style.space(8)
           visible: root.ports.length > 0
 
-          PanelSectionHeader {
-            text: "PROTO   PORT   PROCESS"
-            foreground: root.foreground
-            fontFamily: root.fontFamily
-          }
+          PortHeaderRow {}
 
-          Repeater {
-            model: root.ports
+          Column {
+            width: parent.width
+            spacing: Style.space(4)
 
-            PortRow {
-              required property var modelData
-              proto: modelData.proto
-              port: modelData.port
-              process: modelData.process
-              pid: modelData.pid
+            Repeater {
+              model: root.ports
+
+              PortRow {
+                required property var modelData
+                proto: modelData.proto
+                port: modelData.port
+                display: modelData.display
+              }
             }
           }
         }
@@ -178,22 +225,53 @@ BarWidget {
     }
   }
 
-  component PortRow: Row {
-    id: portRow
-    property string proto: ""
-    property int port: 0
-    property string process: ""
-    property string pid: ""
-
-    readonly property real protoWidth: Style.space(36)
-    readonly property real portWidth: Style.space(48)
-
+  component PortHeaderRow: Row {
     width: parent.width
     spacing: Style.space(10)
 
     Text {
+      text: "PROTO"
+      width: root.protoColWidth
+      color: Qt.darker(root.foreground, 1.4)
+      font.bold: true
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      font.letterSpacing: 1
+    }
+    Text {
+      text: "PORT"
+      width: root.portColWidth
+      horizontalAlignment: Text.AlignRight
+      color: Qt.darker(root.foreground, 1.4)
+      font.bold: true
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      font.letterSpacing: 1
+    }
+    Text {
+      text: "PROCESS"
+      color: Qt.darker(root.foreground, 1.4)
+      font.bold: true
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      font.letterSpacing: 1
+    }
+  }
+
+  component PortRow: Row {
+    id: portRow
+    property string proto: ""
+    property int port: 0
+    property string display: ""
+
+    width: parent.width
+    spacing: Style.space(10)
+    height: Style.space(20)
+
+    Text {
       text: portRow.proto.toUpperCase()
-      width: portRow.protoWidth
+      width: root.protoColWidth
+      anchors.verticalCenter: parent.verticalCenter
       opacity: 0.6
       color: root.foreground
       font.family: root.fontFamily
@@ -201,16 +279,19 @@ BarWidget {
     }
     Text {
       text: String(portRow.port)
-      width: portRow.portWidth
+      width: root.portColWidth
+      anchors.verticalCenter: parent.verticalCenter
+      horizontalAlignment: Text.AlignRight
       font.bold: true
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
     }
     Text {
-      text: portRow.process + (portRow.pid ? " (" + portRow.pid + ")" : "")
+      text: portRow.display
       elide: Text.ElideRight
-      width: Math.max(Style.space(20), portRow.width - portRow.protoWidth - portRow.portWidth - portRow.spacing * 2)
+      anchors.verticalCenter: parent.verticalCenter
+      width: Math.max(Style.space(20), portRow.width - root.protoColWidth - root.portColWidth - portRow.spacing * 2)
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall

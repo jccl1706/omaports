@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.jccl1706.omaports",
   "name": "OmaPorts",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "author": "jc",
   "license": "MIT",
   "description": "Shows open ports and which app is using each one, right from the Omarchy bar",
