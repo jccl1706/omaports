@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "io.github.jccl1706.omaport",
-  "name": "OmaPort",
+  "id": "io.github.jccl1706.omaports",
+  "name": "OmaPorts",
   "version": "1.0.0",
   "author": "jc",
   "license": "MIT",
@@ -9,7 +9,7 @@
   "kinds": ["bar-widget"],
   "entryPoints": { "barWidget": "Widget.qml" },
   "barWidget": {
-    "displayName": "OmaPort",
+    "displayName": "OmaPorts",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right",

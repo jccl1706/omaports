@@ -1,4 +1,4 @@
-# omaport
+# omaports
 
 A bar-widget plugin for the [Omarchy](https://omarchy.org) shell that shows
 how many local ports are currently in use, and which process owns each one.
@@ -10,15 +10,15 @@ how many local ports are currently in use, and which process owns each one.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/jccl1706/omaport.git --enable --yes
+omarchy plugin add https://github.com/jccl1706/omaports.git --enable --yes
 ```
 
 Or by hand:
 
 ```bash
-cp -r . ~/.config/omarchy/plugins/io.github.jccl1706.omaport
+cp -r . ~/.config/omarchy/plugins/io.github.jccl1706.omaports
 omarchy-shell shell rescanPlugins
-omarchy plugin enable io.github.jccl1706.omaport
+omarchy plugin enable io.github.jccl1706.omaports
 ```
 
 For local development, a symlink in place of `cp -r` works too, but
@@ -37,11 +37,11 @@ as "unknown" — this plugin never asks for a password just to list sockets.
 ## Removal
 
 ```bash
-omarchy plugin remove io.github.jccl1706.omaport --yes
+omarchy plugin remove io.github.jccl1706.omaports --yes
 ```
 
-Or by hand: `omarchy plugin disable io.github.jccl1706.omaport`, then delete
-`~/.config/omarchy/plugins/io.github.jccl1706.omaport/`.
+Or by hand: `omarchy plugin disable io.github.jccl1706.omaports`, then delete
+`~/.config/omarchy/plugins/io.github.jccl1706.omaports/`.
 
 ## Files
 

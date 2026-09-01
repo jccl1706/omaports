@@ -4,12 +4,12 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// OmaPort: a bar widget showing how many local ports are currently in use,
+// OmaPorts: a bar widget showing how many local ports are currently in use,
 // with a popup listing each one (protocol, port, and the owning process).
 // Built from the same qs.Commons/qs.Ui components first-party widgets use.
 BarWidget {
   id: root
-  moduleName: "io.github.jccl1706.omaport"
+  moduleName: "io.github.jccl1706.omaports"
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
@@ -97,7 +97,7 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: String(root.portCount)
-    tooltipText: "OmaPort — " + root.portCount + " open port" + (root.portCount === 1 ? "" : "s") + ", click for details"
+    tooltipText: "OmaPorts — " + root.portCount + " open port" + (root.portCount === 1 ? "" : "s") + ", click for details"
     onPressed: root.toggle()
   }
 
@@ -122,7 +122,7 @@ BarWidget {
         spacing: Style.space(14)
 
         PanelHero {
-          title: "OmaPort"
+          title: "OmaPorts"
           meta: root.portCount + " open port" + (root.portCount === 1 ? "" : "s")
           foreground: root.foreground
           fontFamily: root.fontFamily
