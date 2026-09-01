@@ -57,6 +57,14 @@ Toggle "Hide unknown services" in the popup to filter the list down to only
 processes `ss` could actually name — also available over IPC:
 `omarchy-shell io.github.jccl1706.omaports toggleHideUnknown`.
 
+The NET column shows a live `↓in ↑out` throughput for a TCP port with an
+active connection right now, sampled once per refresh. It's blank rather
+than `0` for anything not currently measurable: UDP ports (no per-socket
+byte counters exist for them), a port with no established connections at
+the moment, or a port owned by another user/root — the same "unknown"
+limitation as the process name, since reading another user's socket
+internals needs root and this plugin never asks for a password.
+
 ## Removal
 
 ```bash

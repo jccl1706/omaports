@@ -16,15 +16,28 @@ BarWidget {
 
   readonly property bool opened: popup.open
   property var rawPorts: []
-  // Recomputed automatically whenever rawPorts or hideUnknown changes —
-  // both are read synchronously inside the filter callback, so QML's
-  // binding dependency tracker picks up both.
-  readonly property var ports: hideUnknown ? rawPorts.filter(function(p) { return p.process !== "unknown" }) : rawPorts
+  // Recomputed automatically whenever rawPorts, hideUnknown, or
+  // trafficRates changes — all three are read synchronously in here, so
+  // QML's binding dependency tracker picks up all of them. Traffic rates
+  // are merged in here rather than baked into rawPorts at scan time since
+  // they come from a separate, independently-timed Process.
+  readonly property var ports: {
+    var filtered = hideUnknown ? rawPorts.filter(function(p) { return p.process !== "unknown" }) : rawPorts
+    return filtered.map(function(p) {
+      var rate = p.proto === "tcp" ? root.trafficRates[String(p.port)] : undefined
+      var merged = {}
+      for (var key in p) merged[key] = p[key]
+      merged.inRate = rate ? rate.inRate : null
+      merged.outRate = rate ? rate.outRate : null
+      return merged
+    })
+  }
   readonly property int portCount: ports.length
 
   readonly property real protoColWidth: Style.space(40)
   readonly property real portColWidth: Style.space(50)
   readonly property real scopeColWidth: Style.space(14)
+  readonly property real trafficColWidth: Style.space(90)
 
   readonly property bool hideUnknown: setting("hideUnknown", false) === true
 
@@ -114,6 +127,58 @@ BarWidget {
 
   function refresh() {
     if (!scanProc.running) scanProc.running = true
+    if (!trafficProc.running) trafficProc.running = true
+  }
+
+  // TCP-only, current-user-owned ports only: the kernel exposes per-socket
+  // cumulative byte counters (bytes_sent/bytes_received) through ss without
+  // root for sockets this process can already see, but UDP sockets carry no
+  // equivalent counter, and a listening port owned by another user (system
+  // services — same "unknown" cases everywhere else in this plugin) simply
+  // won't appear in this scan either, so it silently gets no rate rather
+  // than a password prompt. previousTraffic holds the last sample's
+  // cumulative totals per port so updateTraffic can turn "totals since the
+  // connection opened" into "bytes per second since the last poll".
+  property var previousTraffic: ({})
+  property var trafficRates: ({})
+
+  function updateTraffic(text) {
+    var lines = String(text || "").split("\n").filter(function(l) { return l.length > 0 })
+    var now = Date.now()
+    var current = {}
+    var rates = {}
+    var prev = root.previousTraffic
+    for (var i = 0; i < lines.length; i++) {
+      var parts = lines[i].split("\t")
+      if (parts.length < 3) continue
+      var port = parts[0]
+      var sent = parseInt(parts[1], 10)
+      var recv = parseInt(parts[2], 10)
+      if (!isFinite(sent) || !isFinite(recv)) continue
+      current[port] = { sent: sent, recv: recv, t: now }
+      var p = prev[port]
+      // Only a port whose previous sample is still its own baseline (not a
+      // brand-new connection since then) yields a rate — otherwise a port
+      // that just started a connection would appear to have transferred its
+      // entire history in the last few seconds. A byte count going
+      // backwards (the old connection closed and a new one reused the same
+      // local port between samples) is treated the same way: no rate this
+      // round, rather than a nonsensical negative one.
+      if (p && now > p.t && sent >= p.sent && recv >= p.recv) {
+        var dt = (now - p.t) / 1000
+        rates[port] = { outRate: (sent - p.sent) / dt, inRate: (recv - p.recv) / dt }
+      }
+    }
+    root.previousTraffic = current
+    root.trafficRates = rates
+  }
+
+  function formatRate(bytesPerSecond) {
+    if (bytesPerSecond === null || bytesPerSecond === undefined) return ""
+    if (bytesPerSecond < 1) return "0"
+    if (bytesPerSecond < 1024) return Math.round(bytesPerSecond) + "B"
+    if (bytesPerSecond < 1024 * 1024) return (bytesPerSecond / 1024).toFixed(bytesPerSecond < 10240 ? 1 : 0) + "K"
+    return (bytesPerSecond / 1024 / 1024).toFixed(1) + "M"
   }
 
   function updatePorts(text) {
@@ -190,6 +255,39 @@ BarWidget {
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updatePorts(text) }
   }
 
+  // `ss -tie state established` prints one summary line per TCP connection
+  // followed by one tab-indented details line carrying its cumulative
+  // bytes_sent/bytes_received — this pairs each details line with the local
+  // port from the summary line immediately before it, and sums both across
+  // every connection sharing a local port (a busy server can have several
+  // established connections on the one listening port at once).
+  readonly property string trafficScript:
+    "declare -A sent recv\n" +
+    "port=\"\"\n" +
+    "while IFS= read -r line; do\n" +
+    "  if [[ $line == $'\\t'* ]]; then\n" +
+    "    if [[ -n \"$port\" ]]; then\n" +
+    "      s=0; r=0\n" +
+    "      [[ $line =~ bytes_sent:([0-9]+) ]] && s=\"${BASH_REMATCH[1]}\"\n" +
+    "      [[ $line =~ bytes_received:([0-9]+) ]] && r=\"${BASH_REMATCH[1]}\"\n" +
+    "      sent[$port]=$(( ${sent[$port]:-0} + s ))\n" +
+    "      recv[$port]=$(( ${recv[$port]:-0} + r ))\n" +
+    "    fi\n" +
+    "  else\n" +
+    "    localfield=$(awk '{print $3}' <<<\"$line\")\n" +
+    "    port=\"${localfield##*:}\"\n" +
+    "  fi\n" +
+    "done < <(ss -Htie state established 2>/dev/null)\n" +
+    "for key in \"${!sent[@]}\"; do\n" +
+    "  printf '%s\\t%s\\t%s\\n' \"$key\" \"${sent[$key]}\" \"${recv[$key]:-0}\"\n" +
+    "done\n"
+
+  Process {
+    id: trafficProc
+    command: ["bash", "-c", root.trafficScript]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateTraffic(text) }
+  }
+
   // Fast refresh while the popup is visible, a much slower background tick
   // otherwise so the bar count stays roughly current without polling for no
   // reason nobody is looking at.
@@ -243,7 +341,7 @@ BarWidget {
     anchorItem: button
     bar: root.bar
     owner: root
-    contentWidth: popup.fittedContentWidth(Style.space(340))
+    contentWidth: popup.fittedContentWidth(Style.space(400))
     contentHeight: popup.fittedContentHeight(Math.min(content.implicitHeight, Style.space(420)))
 
     Flickable {
@@ -321,6 +419,8 @@ BarWidget {
                 port: modelData.port
                 display: modelData.display
                 scope: modelData.scope
+                inRate: modelData.inRate
+                outRate: modelData.outRate
               }
             }
           }
@@ -358,7 +458,7 @@ BarWidget {
     Item { width: root.scopeColWidth; height: 1 }
     Text {
       text: "PROCESS"
-      width: Math.max(Style.space(20), headerRow.width - root.portColWidth - root.protoColWidth - root.scopeColWidth - headerRow.spacing * 3)
+      width: Math.max(Style.space(20), headerRow.width - root.portColWidth - root.protoColWidth - root.scopeColWidth - root.trafficColWidth - headerRow.spacing * 4)
       color: Qt.darker(root.foreground, 1.4)
       font.bold: true
       font.family: root.fontFamily
@@ -384,6 +484,16 @@ BarWidget {
       font.pixelSize: Style.font.caption
       font.letterSpacing: 1
     }
+    Text {
+      text: "NET"
+      width: root.trafficColWidth
+      horizontalAlignment: Text.AlignRight
+      color: Qt.darker(root.foreground, 1.4)
+      font.bold: true
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
+      font.letterSpacing: 1
+    }
   }
 
   component PortRow: Row {
@@ -392,6 +502,8 @@ BarWidget {
     property int port: 0
     property string display: ""
     property string scope: "local"
+    property var inRate: null
+    property var outRate: null
 
     width: parent.width
     spacing: Style.space(10)
@@ -417,7 +529,7 @@ BarWidget {
       text: portRow.display
       elide: Text.ElideRight
       anchors.verticalCenter: parent.verticalCenter
-      width: Math.max(Style.space(20), portRow.width - root.portColWidth - root.protoColWidth - root.scopeColWidth - portRow.spacing * 3)
+      width: Math.max(Style.space(20), portRow.width - root.portColWidth - root.protoColWidth - root.scopeColWidth - root.trafficColWidth - portRow.spacing * 4)
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
@@ -440,6 +552,21 @@ BarWidget {
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
+    }
+    Text {
+      // Blank for UDP (no per-socket byte counters available at all) and
+      // for a TCP port with no rate yet — either it just appeared and has
+      // no prior sample to diff against, or it currently has no established
+      // connections to measure. Not "0B/s": that would claim a
+      // known-zero rate rather than "nothing measurable right now".
+      text: portRow.inRate !== null ? ("↓" + root.formatRate(portRow.inRate) + " ↑" + root.formatRate(portRow.outRate)) : ""
+      width: root.trafficColWidth
+      anchors.verticalCenter: parent.verticalCenter
+      horizontalAlignment: Text.AlignRight
+      opacity: 0.7
+      color: root.foreground
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.caption
     }
   }
 }
