@@ -96,7 +96,8 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: String(root.portCount)
+    slotSize: Style.bar.iconSlot * 1.7
+    text: "🔌 " + root.portCount
     tooltipText: "OmaPorts — " + root.portCount + " open port" + (root.portCount === 1 ? "" : "s") + ", click for details"
     onPressed: root.toggle()
   }
@@ -128,9 +129,8 @@ BarWidget {
           fontFamily: root.fontFamily
           iconComponent: Component {
             Text {
-              text: String(root.portCount)
+              text: "🔌"
               font.pixelSize: Style.font.display
-              font.bold: true
               color: root.foreground
             }
           }
