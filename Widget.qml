@@ -406,7 +406,10 @@ BarWidget {
         height: Style.space(8)
         radius: width / 2
         anchors.centerIn: parent
-        visible: portRow.scope === "exposed"
+        // opacity, not visible: an invisible item is skipped by layout
+        // calculations, which was shifting every following column left on
+        // "local" rows where this dot has nothing to show.
+        opacity: portRow.scope === "exposed" ? 1 : 0
         color: root.bar ? root.bar.urgent : Color.urgent
       }
     }
