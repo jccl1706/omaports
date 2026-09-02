@@ -8,6 +8,7 @@ how many local ports are currently in use, and which process owns each one.
 ## Requirements
 
 - `ss` (from `iproute2`, installed by default on Arch/Omarchy).
+- `ps` (from `procps-ng`, installed by default on Arch/Omarchy).
 
 ## Install
 
@@ -76,6 +77,12 @@ user can reach the Docker socket without a password — in the `docker`
 group, or a rootless Docker setup — otherwise it falls back to "unknown"
 like everything else this plugin can't attribute, again without ever
 prompting for a password.
+
+A port whose process ss could name also shows that process's live CPU and
+memory next to its PID, e.g. `node (3421 · 0.5% 45MB)` — batched into a
+single `ps` call per refresh rather than one per row. Same limitation as
+the process name itself: no stats for a port ss couldn't attribute to a
+process in the first place.
 
 ## Expected ports
 

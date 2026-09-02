@@ -17,21 +17,23 @@ BarWidget {
   readonly property bool opened: popup.open
   property var rawPorts: []
   // Recomputed automatically whenever rawPorts, hideUnknown, trafficRates,
-  // or dockerContainers changes — all four are read synchronously in here,
-  // so QML's binding dependency tracker picks up all of them. Traffic rates
-  // and the docker container lookup are merged in here rather than baked
-  // into rawPorts at scan time since they come from separate,
-  // independently-timed Processes that can finish before or after the main
-  // port scan on any given refresh.
+  // dockerContainers, or pidStats changes — all five are read synchronously
+  // in here, so QML's binding dependency tracker picks up all of them.
+  // Traffic rates, the docker container lookup, and PID resource stats are
+  // merged in here rather than baked into rawPorts at scan time since they
+  // come from separate, independently-timed Processes that can finish
+  // before or after the main port scan on any given refresh.
   readonly property var ports: {
     var filtered = hideUnknown
       ? rawPorts.filter(function(p) { return p.process !== "unknown" || root.dockerContainers[String(p.port)] })
       : rawPorts
     return filtered.map(function(p) {
       var rate = p.proto === "tcp" ? root.trafficRates[String(p.port)] : undefined
+      var stats = p.pid ? root.pidStats[p.pid] : null
+      var pidPart = p.pid ? (stats ? p.pid + " · " + root.formatPidStats(stats) : p.pid) : ""
       var merged = {}
       for (var key in p) merged[key] = p[key]
-      merged.display = root.describeProcess(p.process, p.port) + (p.pid ? " (" + p.pid + ")" : "")
+      merged.display = root.describeProcess(p.process, p.port) + (pidPart ? " (" + pidPart + ")" : "")
       merged.inRate = rate ? rate.inRate : null
       merged.outRate = rate ? rate.outRate : null
       merged.unexpected = root.isUnexpected(p.port)
@@ -210,6 +212,7 @@ BarWidget {
     if (!scanProc.running) scanProc.running = true
     if (!trafficProc.running) trafficProc.running = true
     if (!dockerProc.running) dockerProc.running = true
+    if (!pidStatsProc.running) pidStatsProc.running = true
   }
 
   // TCP-only, current-user-owned ports only: the kernel exposes per-socket
@@ -261,6 +264,12 @@ BarWidget {
     if (bytesPerSecond < 1024) return Math.round(bytesPerSecond) + "B"
     if (bytesPerSecond < 1024 * 1024) return (bytesPerSecond / 1024).toFixed(bytesPerSecond < 10240 ? 1 : 0) + "K"
     return (bytesPerSecond / 1024 / 1024).toFixed(1) + "M"
+  }
+
+  function formatPidStats(stats) {
+    var mb = stats.rssKb / 1024
+    var mem = mb < 1 ? Math.round(stats.rssKb) + "KB" : mb.toFixed(mb < 10 ? 1 : 0) + "MB"
+    return stats.cpu.toFixed(1) + "% " + mem
   }
 
   function updatePorts(text) {
@@ -425,6 +434,52 @@ BarWidget {
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateDockerContainers(text) }
   }
 
+  // CPU% and memory for each port's owning PID, batched into a single `ps`
+  // call rather than one per row. Only ever has entries for PIDs ss could
+  // already attribute a name to (root-owned ports carry no PID at all, the
+  // same limitation as everywhere else in this plugin) — no new privilege
+  // boundary crossed. pidStatsScript is a live binding on root.rawPorts, so
+  // it naturally picks up the latest scan's PIDs each time refresh() sets
+  // pidStatsProc.running back to true; like trafficRates and
+  // dockerContainers, this runs independently of the port scan and can
+  // finish a cycle behind it, which just means a newly-appeared port's
+  // stats are blank until the next refresh rather than this one.
+  property var pidStats: ({})
+
+  function updatePidStats(text) {
+    var lines = String(text || "").split("\n").filter(function(l) { return l.trim().length > 0 })
+    var map = {}
+    for (var i = 0; i < lines.length; i++) {
+      var parts = lines[i].trim().split(/\s+/)
+      if (parts.length < 3) continue
+      var cpu = parseFloat(parts[1])
+      var rssKb = parseFloat(parts[2])
+      if (!isFinite(cpu) || !isFinite(rssKb)) continue
+      map[parts[0]] = { cpu: cpu, rssKb: rssKb }
+    }
+    root.pidStats = map
+  }
+
+  // Deduplicated, since one process commonly owns more than one port (e.g.
+  // a server listening on both an IPv4 and IPv6 bind). pid values are
+  // ss-parsed via a [0-9]+ regex capture in scanScript, so they're always
+  // pure digits — safe to interpolate directly into this command string.
+  readonly property string pidStatsScript: {
+    var pids = []
+    var seen = {}
+    for (var i = 0; i < root.rawPorts.length; i++) {
+      var pid = root.rawPorts[i].pid
+      if (pid && !seen[pid]) { seen[pid] = true; pids.push(pid) }
+    }
+    return pids.length > 0 ? ("ps -o pid=,pcpu=,rss= -p " + pids.join(",") + " 2>/dev/null") : "exit 0"
+  }
+
+  Process {
+    id: pidStatsProc
+    command: ["bash", "-c", root.pidStatsScript]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updatePidStats(text) }
+  }
+
   // Fast refresh while the popup is visible, a much slower background tick
   // otherwise so the bar count stays roughly current without polling for no
   // reason nobody is looking at.
@@ -476,7 +531,16 @@ BarWidget {
     onPressed: root.toggle()
   }
 
-  PopupCard {
+  // KeyboardPanel, not PopupCard: PopupCard is an xdg-popup, which per its
+  // own doc comment in the shell source only receives keyboard input after
+  // a click/hover routes focus through its parent surface — in practice
+  // the "Expected ports" TextField below never received a single keystroke
+  // under it, confirmed live. KeyboardPanel is the same layer-shell
+  // approach the first-party wifi passphrase prompt uses for exactly this
+  // reason. Its API is a documented subset of PopupCard's (missing only
+  // triggerMode "hover" and containsMouse, neither used here), so this is
+  // a drop-in swap of the popup's own type.
+  KeyboardPanel {
     id: popup
     anchorItem: button
     bar: root.bar
