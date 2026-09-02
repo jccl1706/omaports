@@ -3,6 +3,8 @@
 A bar-widget plugin for the [Omarchy](https://omarchy.org) shell that shows
 how many local ports are currently in use, and which process owns each one.
 
+<img src="preview.png" alt="OmaPorts popup showing open ports, owning process, protocol, and live network throughput" width="360">
+
 ## Requirements
 
 - `ss` (from `iproute2`, installed by default on Arch/Omarchy).
