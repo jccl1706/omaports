@@ -77,6 +77,18 @@ group, or a rootless Docker setup — otherwise it falls back to "unknown"
 like everything else this plugin can't attribute, again without ever
 prompting for a password.
 
+## Expected ports
+
+Type a comma-separated list of port numbers into "Expected ports" in the
+popup (blank turns this off) to flag anything else. A port not on the list
+shows its port number in the same accent color as the exposed-network dot,
+the bar icon stays flagged for as long as an unexpected port is open (not
+just until you next open the popup), and a notification for a newly
+opened unexpected port is worded differently from a routine new-port one.
+There's no separate dismiss/acknowledge step — adding a port to the list
+is what clears its flag. The list matches by port number only, not
+protocol or process.
+
 ## Removal
 
 ```bash

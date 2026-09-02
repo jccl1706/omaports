@@ -34,6 +34,7 @@ BarWidget {
       merged.display = root.describeProcess(p.process, p.port) + (p.pid ? " (" + p.pid + ")" : "")
       merged.inRate = rate ? rate.inRate : null
       merged.outRate = rate ? rate.outRate : null
+      merged.unexpected = root.isUnexpected(p.port)
       return merged
     })
   }
@@ -56,6 +57,48 @@ BarWidget {
   }
 
   function toggleHideUnknown() { setHideUnknown(!hideUnknown) }
+
+  // A user-maintained allowlist, off by default (empty string). Persisted
+  // the same way as hideUnknown. Deliberately port-number-only, not
+  // proto-aware (an entry matches a port on any protocol) — the same
+  // "close enough, and much easier to type" tradeoff trafficRates already
+  // makes by keying on port alone.
+  readonly property string expectedPortsRaw: setting("expectedPorts", "")
+
+  function setExpectedPorts(raw) {
+    var entry = { id: root.moduleName }
+    for (var key in root.settings) if (key !== "id") entry[key] = root.settings[key]
+    entry.expectedPorts = raw
+    root.settings = entry
+    if (root.bar && root.bar.shell && typeof root.bar.shell.updateEntryInline === "function")
+      root.bar.shell.updateEntryInline(root.moduleName, entry)
+  }
+
+  // null (not an empty object) means "no allowlist configured" — the
+  // feature is off and nothing gets flagged, rather than an empty list
+  // making every single port look unexpected the moment someone installs
+  // the plugin without touching this setting.
+  readonly property var expectedPortSet: {
+    var raw = String(root.expectedPortsRaw || "").trim()
+    if (raw.length === 0) return null
+    var set = {}
+    var parts = raw.split(",")
+    for (var i = 0; i < parts.length; i++) {
+      var n = parseInt(parts[i].trim(), 10)
+      if (isFinite(n) && n > 0) set[String(n)] = true
+    }
+    return set
+  }
+
+  function isUnexpected(port) {
+    return root.expectedPortSet !== null && root.expectedPortSet[String(port)] !== true
+  }
+
+  // Persistent, not a one-time badge like hasNewPort: as long as an
+  // unexpected port stays open, this stays true — there's no separate
+  // "seen" state to track, since adding the port to the allowlist below is
+  // itself the acknowledgment.
+  readonly property bool hasUnexpectedPort: root.ports.some(function(p) { return p.unexpected })
 
   // Badge on the bar icon (reusing BarIconButton's built-in active/urgent
   // color, the same mechanism first-party widgets use) for a port that
@@ -80,8 +123,10 @@ BarWidget {
 
   function notifyNewPort(entry) {
     if (!bar) return
-    bar.run("notify-send " + Util.shellQuote("OmaPorts")
-      + " " + Util.shellQuote("New port: " + entry.proto.toUpperCase() + " " + entry.port + " — " + escapeNotifyMarkup(entry.display)))
+    var title = entry.unexpected ? "OmaPorts — unexpected port" : "OmaPorts"
+    var lead = entry.unexpected ? "Not on your expected list: " : "New port: "
+    bar.run("notify-send " + Util.shellQuote(title)
+      + " " + Util.shellQuote(lead + entry.proto.toUpperCase() + " " + entry.port + " — " + escapeNotifyMarkup(entry.display)))
   }
 
   function checkForNewPorts() {
@@ -414,7 +459,10 @@ BarWidget {
     // Reuses WidgetButton's built-in active/urgent-color mechanism (the
     // same one first-party widgets use) to flag a newly opened port —
     // simpler than compositing a badge dot onto this text-based icon.
-    active: root.hasNewPort
+    // hasUnexpectedPort is included too so a port outside the allowlist
+    // keeps the icon flagged for as long as it's open, not just until the
+    // popup is next opened.
+    active: root.hasNewPort || root.hasUnexpectedPort
     onPressed: root.toggle()
   }
 
@@ -479,6 +527,43 @@ BarWidget {
           }
         }
 
+        Column {
+          width: parent.width
+          spacing: Style.space(4)
+
+          Text {
+            text: "Expected ports"
+            opacity: 0.8
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.bodySmall
+          }
+
+          TextField {
+            id: expectedPortsField
+            width: parent.width
+            text: root.expectedPortsRaw
+            placeholderText: "e.g. 22, 80, 443, 3000 — blank turns this off"
+            foreground: root.foreground
+            // Committed on blur/Enter (editingFinished), not per keystroke —
+            // this writes to shell.json, and re-parsing/re-flagging every
+            // row on every keypress would be both wasteful and would fight
+            // the user mid-edit if a scan lands while they're still typing.
+            onEditingFinished: root.setExpectedPorts(text)
+          }
+
+          Text {
+            visible: root.expectedPortSet !== null
+            width: parent.width
+            text: "Port numbers in the flagged color below aren't on this list"
+            opacity: 0.6
+            wrapMode: Text.WordWrap
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.caption
+          }
+        }
+
         PanelSeparator { foreground: root.foreground }
 
         Column {
@@ -503,6 +588,7 @@ BarWidget {
                 scope: modelData.scope
                 inRate: modelData.inRate
                 outRate: modelData.outRate
+                unexpected: modelData.unexpected
               }
             }
           }
@@ -596,6 +682,7 @@ BarWidget {
     property string scope: "local"
     property var inRate: null
     property var outRate: null
+    property bool unexpected: false
 
     width: parent.width
     spacing: Style.space(10)
@@ -640,7 +727,11 @@ BarWidget {
       anchors.verticalCenter: parent.verticalCenter
       horizontalAlignment: Text.AlignRight
       font.bold: true
-      color: root.foreground
+      // Flags a port outside the configured allowlist (root.expectedPortSet
+      // === null means the feature is off, in which case unexpected is
+      // always false — see isUnexpected). Same urgent color the exposed-
+      // network dot already uses, so "needs attention" reads consistently.
+      color: portRow.unexpected ? (root.bar ? root.bar.urgent : Color.urgent) : root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
     }
