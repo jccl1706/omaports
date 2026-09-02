@@ -43,7 +43,13 @@ BarWidget {
   readonly property real protoColWidth: Style.space(40)
   readonly property real portColWidth: Style.space(50)
   readonly property real scopeColWidth: Style.space(14)
-  readonly property real trafficColWidth: Style.space(90)
+  // Collapses to 0 (rather than sitting empty) when nothing currently
+  // visible has a rate to show — a TCP port with no established connection
+  // and every UDP port both always land here, which is the common case, so
+  // reserving 90 units of dead space by default left the PROCESS column
+  // more cramped than it needed to be.
+  readonly property bool hasAnyTraffic: root.ports.some(function(p) { return p.inRate !== null })
+  readonly property real trafficColWidth: hasAnyTraffic ? Style.space(90) : 0
 
   readonly property bool hideUnknown: setting("hideUnknown", false) === true
 
@@ -188,8 +194,12 @@ BarWidget {
     var container = root.dockerContainers[String(port)]
     if (container) return container + " (docker)"
     if (procName !== "unknown") return procName
+    // "unknown — Printing (IPP)?" rather than the nested "unknown (Printing
+    // (IPP)?)" — a guess like Printing/DHCP/DNS already has its own
+    // parenthetical, and nesting a second pair around it both reads oddly
+    // and truncates badly (elided mid-open-paren) in the row's fixed width.
     var guess = wellKnownPortName(port)
-    return guess ? "unknown (" + guess + "?)" : "unknown"
+    return guess ? "unknown — " + guess + "?" : "unknown"
   }
 
   function open() { popup.open = true }
@@ -606,6 +616,7 @@ BarWidget {
 
           Text {
             width: parent.width
+            visible: root.hasAnyTraffic
             text: "NET shows live throughput only while a TCP connection is actively transferring — blank means nothing is moving right now, not that it's broken"
             opacity: 0.6
             wrapMode: Text.WordWrap
@@ -636,7 +647,11 @@ BarWidget {
     Item { width: root.scopeColWidth; height: 1 }
     Text {
       text: "PROCESS"
-      width: Math.max(Style.space(20), headerRow.width - root.portColWidth - root.protoColWidth - root.scopeColWidth - root.trafficColWidth - headerRow.spacing * 4)
+      // headerRow.spacing is only added between visible children, so the
+      // gap count drops from 4 to 3 when the NET column is collapsed —
+      // matching that here is what lets this column actually reclaim the
+      // freed width instead of leaving it as a trailing empty margin.
+      width: Math.max(Style.space(20), headerRow.width - root.portColWidth - root.protoColWidth - root.scopeColWidth - root.trafficColWidth - headerRow.spacing * (root.hasAnyTraffic ? 4 : 3))
       color: Qt.darker(root.foreground, 1.4)
       font.bold: true
       font.family: root.fontFamily
@@ -663,6 +678,7 @@ BarWidget {
       font.letterSpacing: 1
     }
     Text {
+      visible: root.hasAnyTraffic
       text: "NET"
       width: root.trafficColWidth
       horizontalAlignment: Text.AlignRight
@@ -716,7 +732,7 @@ BarWidget {
       text: portRow.display
       elide: Text.ElideRight
       anchors.verticalCenter: parent.verticalCenter
-      width: Math.max(Style.space(20), portRow.width - root.portColWidth - root.protoColWidth - root.scopeColWidth - root.trafficColWidth - portRow.spacing * 4)
+      width: Math.max(Style.space(20), portRow.width - root.portColWidth - root.protoColWidth - root.scopeColWidth - root.trafficColWidth - portRow.spacing * (root.hasAnyTraffic ? 4 : 3))
       color: root.foreground
       font.family: root.fontFamily
       font.pixelSize: Style.font.bodySmall
@@ -750,6 +766,7 @@ BarWidget {
       // no prior sample to diff against, or it currently has no established
       // connections to measure. Not "0B/s": that would claim a
       // known-zero rate rather than "nothing measurable right now".
+      visible: root.hasAnyTraffic
       text: portRow.inRate !== null ? ("↓" + root.formatRate(portRow.inRate) + " ↑" + root.formatRate(portRow.outRate)) : ""
       width: root.trafficColWidth
       anchors.verticalCenter: parent.verticalCenter
