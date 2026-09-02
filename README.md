@@ -67,6 +67,16 @@ the moment, or a port owned by another user/root — the same "unknown"
 limitation as the process name, since reading another user's socket
 internals needs root and this plugin never asks for a password.
 
+A port Docker publishes to the host shows the owning container's name
+(e.g. `my-postgres (docker)`) instead of "unknown" — Docker's own
+port-forwarding process normally runs as root, so it's invisible to `ss`
+the same way any other root-owned service is, but cross-referencing
+`docker ps` fills in what it actually is. This only works if the current
+user can reach the Docker socket without a password — in the `docker`
+group, or a rootless Docker setup — otherwise it falls back to "unknown"
+like everything else this plugin can't attribute, again without ever
+prompting for a password.
+
 ## Removal
 
 ```bash

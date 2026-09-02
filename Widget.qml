@@ -16,17 +16,22 @@ BarWidget {
 
   readonly property bool opened: popup.open
   property var rawPorts: []
-  // Recomputed automatically whenever rawPorts, hideUnknown, or
-  // trafficRates changes — all three are read synchronously in here, so
-  // QML's binding dependency tracker picks up all of them. Traffic rates
-  // are merged in here rather than baked into rawPorts at scan time since
-  // they come from a separate, independently-timed Process.
+  // Recomputed automatically whenever rawPorts, hideUnknown, trafficRates,
+  // or dockerContainers changes — all four are read synchronously in here,
+  // so QML's binding dependency tracker picks up all of them. Traffic rates
+  // and the docker container lookup are merged in here rather than baked
+  // into rawPorts at scan time since they come from separate,
+  // independently-timed Processes that can finish before or after the main
+  // port scan on any given refresh.
   readonly property var ports: {
-    var filtered = hideUnknown ? rawPorts.filter(function(p) { return p.process !== "unknown" }) : rawPorts
+    var filtered = hideUnknown
+      ? rawPorts.filter(function(p) { return p.process !== "unknown" || root.dockerContainers[String(p.port)] })
+      : rawPorts
     return filtered.map(function(p) {
       var rate = p.proto === "tcp" ? root.trafficRates[String(p.port)] : undefined
       var merged = {}
       for (var key in p) merged[key] = p[key]
+      merged.display = root.describeProcess(p.process, p.port) + (p.pid ? " (" + p.pid + ")" : "")
       merged.inRate = rate ? rate.inRate : null
       merged.outRate = rate ? rate.outRate : null
       return merged
@@ -129,6 +134,14 @@ BarWidget {
   }
 
   function describeProcess(procName, port) {
+    // Checked first, ahead of the raw process name: a port docker-proxy
+    // (root-owned) is forwarding is invisible to ss's process attribution
+    // for an unprivileged caller either way, so it always lands here as
+    // "unknown" from ss's own perspective — the docker lookup is strictly
+    // more informative than either the raw name or the well-known-port
+    // guess below when it has an answer.
+    var container = root.dockerContainers[String(port)]
+    if (container) return container + " (docker)"
     if (procName !== "unknown") return procName
     var guess = wellKnownPortName(port)
     return guess ? "unknown (" + guess + "?)" : "unknown"
@@ -141,6 +154,7 @@ BarWidget {
   function refresh() {
     if (!scanProc.running) scanProc.running = true
     if (!trafficProc.running) trafficProc.running = true
+    if (!dockerProc.running) dockerProc.running = true
   }
 
   // TCP-only, current-user-owned ports only: the kernel exposes per-socket
@@ -209,8 +223,7 @@ BarWidget {
         port: port,
         process: process,
         pid: pid,
-        scope: parts[4] === "exposed" ? "exposed" : "local",
-        display: describeProcess(process, port) + (pid ? " (" + pid + ")" : "")
+        scope: parts[4] === "exposed" ? "exposed" : "local"
       })
     }
     root.rawPorts = list
@@ -299,6 +312,62 @@ BarWidget {
     id: trafficProc
     command: ["bash", "-c", root.trafficScript]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateTraffic(text) }
+  }
+
+  // Maps a host port to the docker container publishing it. Docker's own
+  // port-forwarding process (docker-proxy) normally runs as root, so ss
+  // reports these ports to an unprivileged caller with no process
+  // attribution at all — confirmed live: `ss -Htulpn` lists the port but
+  // omits the users:(()) field entirely, landing in describeProcess's
+  // "unknown" bucket the same way any other root-owned service does.
+  // Cross-referencing `docker ps` fills that in with the container name,
+  // which is more useful than either "unknown" or a well-known-port guess.
+  // Requires the current user to reach the docker socket without a
+  // password (in the `docker` group, or a rootless Docker setup) — if
+  // `docker ps` can't connect, it fails in milliseconds and this plugin
+  // silently gets nothing back, the same "never prompts for a password"
+  // fallback as every other unattributable port. Docker itself restricts
+  // container names to [a-zA-Z0-9_.-], so unlike a process name (settable
+  // to anything via prctl(PR_SET_NAME)), a container name can't smuggle a
+  // tab or newline into this script's own TSV parsing.
+  property var dockerContainers: ({})
+
+  function updateDockerContainers(text) {
+    var lines = String(text || "").split("\n").filter(function(l) { return l.length > 0 })
+    var map = {}
+    for (var i = 0; i < lines.length; i++) {
+      var parts = lines[i].split("\t")
+      if (parts.length < 2) continue
+      map[parts[0]] = parts[1]
+    }
+    root.dockerContainers = map
+  }
+
+  // `docker ps --format` gives one line per container; its Ports field can
+  // list several comma-separated mappings (dual-stack IPv4/IPv6 publish the
+  // same host port twice, e.g. "0.0.0.0:5432->5432/tcp, [::]:5432->5432/tcp")
+  // and can include ports that aren't published to the host at all (just
+  // "5432/tcp", no "->" — deliberately skipped, since that's not a host
+  // listening port ss would ever see). `>` must be backslash-escaped inside
+  // `[[ =~ ]]` here — confirmed directly: without it bash parses the bare
+  // `>` as redirection syntax and throws a syntax error rather than treating
+  // it as a literal regex character.
+  readonly property string dockerScript:
+    "command -v docker >/dev/null 2>&1 || exit 0\n" +
+    "timeout 2 docker ps --format '{{.Names}}\\t{{.Ports}}' 2>/dev/null | while IFS=$'\\t' read -r name ports; do\n" +
+    "  IFS=',' read -ra mappings <<< \"$ports\"\n" +
+    "  for m in \"${mappings[@]}\"; do\n" +
+    "    m=\"${m# }\"\n" +
+    "    if [[ $m =~ ^.*:([0-9]+)-\\>[0-9]+/(tcp|udp)$ ]]; then\n" +
+    "      printf '%s\\t%s\\n' \"${BASH_REMATCH[1]}\" \"$name\"\n" +
+    "    fi\n" +
+    "  done\n" +
+    "done\n"
+
+  Process {
+    id: dockerProc
+    command: ["bash", "-c", root.dockerScript]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateDockerContainers(text) }
   }
 
   // Fast refresh while the popup is visible, a much slower background tick
