@@ -60,10 +60,23 @@ BarWidget {
   property var seenPortKeys: null
   property bool hasNewPort: false
 
+  // entry.display is derived from the owning process's name, which any
+  // unprivileged local process can set to arbitrary text via
+  // prctl(PR_SET_NAME) — confirmed directly, both that ss reports it
+  // verbatim and that this system's notification daemon actually
+  // interprets a markup subset in the body text (a literal "<b>" made text
+  // bold; an "<img>" tag was silently consumed). Escaping the three
+  // markup-special characters before it ever reaches notify-send means a
+  // crafted process name is displayed as the literal text it is instead of
+  // being interpreted.
+  function escapeNotifyMarkup(s) {
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+  }
+
   function notifyNewPort(entry) {
     if (!bar) return
     bar.run("notify-send " + Util.shellQuote("OmaPorts")
-      + " " + Util.shellQuote("New port: " + entry.proto.toUpperCase() + " " + entry.port + " — " + entry.display))
+      + " " + Util.shellQuote("New port: " + entry.proto.toUpperCase() + " " + entry.port + " — " + escapeNotifyMarkup(entry.display)))
   }
 
   function checkForNewPorts() {
@@ -536,6 +549,14 @@ BarWidget {
       }
     }
     Text {
+      // portRow.display is derived from the owning process's name, which
+      // ss reports verbatim from the kernel — and any unprivileged local
+      // process can set that name to arbitrary text via prctl(PR_SET_NAME),
+      // confirmed directly (a process named "<img src=x>evil" shows up in
+      // ss's output exactly like that). PlainText so a markup-shaped
+      // process name is never parsed as rich text by Qt's default AutoText
+      // detection, only ever displayed as the literal string it is.
+      textFormat: Text.PlainText
       text: portRow.display
       elide: Text.ElideRight
       anchors.verticalCenter: parent.verticalCenter
