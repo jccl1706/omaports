@@ -603,15 +603,39 @@ BarWidget {
             }
           }
 
-          Text {
+          Row {
+            id: exposedLegend
             width: parent.width
             visible: root.ports.some(function(p) { return p.scope === "exposed" })
-            text: "●  reachable from your network, not just this PC"
-            opacity: 0.6
-            wrapMode: Text.WordWrap
-            color: root.foreground
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.caption
+            spacing: Style.space(10)
+
+            // Same Item width and Rectangle styling as the scope dot in
+            // PortRow below, so this legend dot lines up in the same
+            // column as the real ones instead of just being a "●"
+            // character glued to the front of the caption text.
+            Item {
+              width: root.scopeColWidth
+              height: legendText.implicitHeight
+
+              Rectangle {
+                width: Style.space(8)
+                height: Style.space(8)
+                radius: width / 2
+                anchors.centerIn: parent
+                color: root.bar ? root.bar.urgent : Color.urgent
+              }
+            }
+
+            Text {
+              id: legendText
+              width: exposedLegend.width - root.scopeColWidth - exposedLegend.spacing
+              text: "reachable from your network, not just this PC"
+              opacity: 0.6
+              wrapMode: Text.WordWrap
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
           }
 
           Text {
