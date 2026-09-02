@@ -34,6 +34,14 @@ BarWidget {
       var merged = {}
       for (var key in p) merged[key] = p[key]
       merged.display = root.describeProcess(p.process, p.port) + (pidPart ? " (" + pidPart + ")" : "")
+      // Kept out of display on purpose: display feeds notifyNewPort, and a
+      // notification popup is the wrong place for a command line that can
+      // run to 200 characters. It's appended separately, in the row itself,
+      // straight into the same Text.PlainText-protected element display
+      // already renders through — cmdline is exactly as untrustworthy as a
+      // process name (a process fully controls its own argv memory), so it
+      // needs the same protection, not new protection of its own.
+      merged.cmdline = stats ? stats.cmdline : ""
       merged.inRate = rate ? rate.inRate : null
       merged.outRate = rate ? rate.outRate : null
       merged.unexpected = root.isUnexpected(p.port)
@@ -434,28 +442,38 @@ BarWidget {
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateDockerContainers(text) }
   }
 
-  // CPU% and memory for each port's owning PID, batched into a single `ps`
-  // call rather than one per row. Only ever has entries for PIDs ss could
-  // already attribute a name to (root-owned ports carry no PID at all, the
-  // same limitation as everywhere else in this plugin) — no new privilege
-  // boundary crossed. pidStatsScript is a live binding on root.rawPorts, so
-  // it naturally picks up the latest scan's PIDs each time refresh() sets
-  // pidStatsProc.running back to true; like trafficRates and
-  // dockerContainers, this runs independently of the port scan and can
-  // finish a cycle behind it, which just means a newly-appeared port's
-  // stats are blank until the next refresh rather than this one.
+  // CPU%, memory, and command line for each port's owning PID. The ps call
+  // is batched (one call for every PID, not one per row); cmdline is read
+  // directly from /proc since ps's own args column has no reliable way to
+  // tell where one argument ends and the next begins, and (more
+  // fundamentally) bash variables can't hold embedded NUL bytes at all — a
+  // plain `cmdline=$(cat /proc/$pid/cmdline)` silently drops every NUL,
+  // concatenating all the arguments into one unreadable run, confirmed
+  // directly. Piping through `tr` converts the NULs (and, in case an
+  // argument itself contains one — a process fully controls its own argv
+  // memory — any literal tab/newline too) to spaces before the string ever
+  // reaches a bash variable, which both makes it readable and keeps it to
+  // the single TSV line this script prints per PID.
+  //
+  // Only ever has entries for PIDs ss could already attribute a name to
+  // (root-owned ports carry no PID at all, the same limitation as
+  // everywhere else in this plugin) — no new privilege boundary crossed.
+  // Like trafficRates and dockerContainers, pidStatsScript is a live
+  // binding on root.rawPorts and this runs independently of the port scan,
+  // so it can finish a cycle behind it — a newly-appeared port's stats are
+  // just blank until the next refresh rather than this one.
   property var pidStats: ({})
 
   function updatePidStats(text) {
-    var lines = String(text || "").split("\n").filter(function(l) { return l.trim().length > 0 })
+    var lines = String(text || "").split("\n").filter(function(l) { return l.length > 0 })
     var map = {}
     for (var i = 0; i < lines.length; i++) {
-      var parts = lines[i].trim().split(/\s+/)
+      var parts = lines[i].split("\t")
       if (parts.length < 3) continue
       var cpu = parseFloat(parts[1])
       var rssKb = parseFloat(parts[2])
       if (!isFinite(cpu) || !isFinite(rssKb)) continue
-      map[parts[0]] = { cpu: cpu, rssKb: rssKb }
+      map[parts[0]] = { cpu: cpu, rssKb: rssKb, cmdline: parts[3] || "" }
     }
     root.pidStats = map
   }
@@ -471,7 +489,18 @@ BarWidget {
       var pid = root.rawPorts[i].pid
       if (pid && !seen[pid]) { seen[pid] = true; pids.push(pid) }
     }
-    return pids.length > 0 ? ("ps -o pid=,pcpu=,rss= -p " + pids.join(",") + " 2>/dev/null") : "exit 0"
+    if (pids.length === 0) return "exit 0"
+    return "declare -A cmd\n" +
+      "for pid in " + pids.join(" ") + "; do\n" +
+      "  if [[ -r /proc/$pid/cmdline ]]; then\n" +
+      "    raw=$(tr '\\0\\t\\n' '   ' < /proc/$pid/cmdline 2>/dev/null)\n" +
+      "    raw=\"${raw% }\"\n" +
+      "    cmd[$pid]=\"${raw:0:200}\"\n" +
+      "  fi\n" +
+      "done\n" +
+      "ps -o pid=,pcpu=,rss= -p " + pids.join(",") + " 2>/dev/null | while read -r pid cpu rss; do\n" +
+      "  printf '%s\\t%s\\t%s\\t%s\\n' \"$pid\" \"$cpu\" \"$rss\" \"${cmd[$pid]:-}\"\n" +
+      "done\n"
   }
 
   Process {
@@ -659,6 +688,7 @@ BarWidget {
                 proto: modelData.proto
                 port: modelData.port
                 display: modelData.display
+                cmdline: modelData.cmdline
                 scope: modelData.scope
                 inRate: modelData.inRate
                 outRate: modelData.outRate
@@ -783,6 +813,7 @@ BarWidget {
     property string proto: ""
     property int port: 0
     property string display: ""
+    property string cmdline: ""
     property string scope: "local"
     property var inRate: null
     property var outRate: null
@@ -817,7 +848,7 @@ BarWidget {
       // process name is never parsed as rich text by Qt's default AutoText
       // detection, only ever displayed as the literal string it is.
       textFormat: Text.PlainText
-      text: portRow.display
+      text: portRow.display + (portRow.cmdline ? "  —  " + portRow.cmdline : "")
       elide: Text.ElideRight
       anchors.verticalCenter: parent.verticalCenter
       width: Math.max(Style.space(20), portRow.width - root.portColWidth - root.protoColWidth - root.scopeColWidth - root.trafficColWidth - portRow.spacing * (root.hasAnyTraffic ? 4 : 3))

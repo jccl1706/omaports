@@ -84,6 +84,13 @@ single `ps` call per refresh rather than one per row. Same limitation as
 the process name itself: no stats for a port ss couldn't attribute to a
 process in the first place.
 
+The row also appends that process's actual command line, e.g. `node
+(3421 · 0.5% 45MB) — node server.js --port 3000`, read straight from
+`/proc/<pid>/cmdline` — often truncated by the row's width, since it can
+run long, but readable when it fits. Same PID-attribution limitation as
+everything else here: nothing shown for a port ss couldn't already name a
+process for.
+
 ## Expected ports
 
 Type a comma-separated list of port numbers into "Expected ports" in the
